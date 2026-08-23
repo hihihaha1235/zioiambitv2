@@ -1,0 +1,283 @@
+-- [[ ZIOIAMBOTVIP V2 - INTEGRATED CONTROLLER SYSTEM ]]
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- CẤU HÌNH TRẠNG THÁI HỆ THỐNG
+local lockOnActive = false
+local labelsActive = false
+local fovVisible = true
+local fovRadius = 150
+
+local createdTags = {}
+
+-- 1. KHỞI TẠO VÒNG TRÒN GIỚI HẠN GÓC NHÌN (FOV)
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Color = Color3.fromRGB(0, 255, 200)
+FOVCircle.Thickness = 2
+FOVCircle.NumSides = 64
+FOVCircle.Transparency = 0.5
+
+-- 2. TẠO GIAO DIỆN PREMIUM "zioiambotvip v2"
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "zioiambotvip"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local MainMenu = Instance.new("Frame")
+MainMenu.Size = UDim2.new(0, 240, 0, 270)
+MainMenu.Position = UDim2.new(0.05, 0, 0.3, 0)
+MainMenu.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
+MainMenu.BorderColor3 = Color3.fromRGB(0, 255, 200)
+MainMenu.BorderSizePixel = 2
+MainMenu.Active = true
+MainMenu.Draggable = true
+MainMenu.Parent = ScreenGui
+
+-- Hàm helper tạo nhanh linh kiện UI
+local function createUiComponent(class, props)
+	local inst = Instance.new(class)
+	for k, v in pairs(props) do inst[k] = v end
+	inst.Parent = MainMenu
+	return inst
+end
+
+-- Tiêu đề Menu
+local Title = createUiComponent("TextLabel", {
+	Size = UDim2.new(1, 0, 0, 40),
+	BackgroundColor3 = Color3.fromRGB(24, 24, 30),
+	BorderSizePixel = 0,
+	Text = "🤖 ZIOIAMBOTVIP V2.0",
+	TextColor3 = Color3.fromRGB(0, 255, 200),
+	Font = Enum.Font.SourceSansBold,
+	TextSize = 15
+})
+
+-- Nút hiển thị trạng thái Lock-on
+local BtnLock = createUiComponent("TextLabel", {
+	Size = UDim2.new(1, -20, 0, 32),
+	Position = UDim2.new(0, 10, 0, 55),
+	Font = Enum.Font.SourceSansBold,
+	TextSize = 13
+})
+
+-- Nút hiển thị trạng thái Nhãn tên + Máu (ESP)
+local BtnLabel = createUiComponent("TextLabel", {
+	Size = UDim2.new(1, -20, 0, 32),
+	Position = UDim2.new(0, 10, 0, 95),
+	Font = Enum.Font.SourceSansBold,
+	TextSize = 13
+})
+
+-- Nút hiển thị trạng thái Ẩn/Hiện đường FOV
+local BtnFovToggle = createUiComponent("TextButton", {
+	Size = UDim2.new(1, -20, 0, 32),
+	Position = UDim2.new(0, 10, 0, 135),
+	Font = Enum.Font.SourceSansBold,
+	TextSize = 13
+})
+
+-- Khu vực điều chỉnh kích thước FOV bằng Chuột
+local FovSizeLabel = createUiComponent("TextLabel", {
+	Size = UDim2.new(1, -110, 0, 30),
+	Position = UDim2.new(0, 10, 0, 175),
+	BackgroundTransparency = 1,
+	TextColor3 = Color3.fromRGB(200, 200, 200),
+	Font = Enum.Font.SourceSansBold,
+	TextSize = 13,
+	TextXAlignment = Enum.TextXAlignment.Left
+})
+
+local BtnMinus = createUiComponent("TextButton", {
+	Size = UDim2.new(0, 40, 0, 28),
+	Position = UDim2.new(1, -95, 0, 175),
+	BackgroundColor3 = Color3.fromRGB(40, 40, 45),
+	Text = "-",
+	TextColor3 = Color3.fromRGB(255, 255, 255),
+	Font = Enum.Font.SourceSansBold
+})
+
+local BtnPlus = createUiComponent("TextButton", {
+	Size = UDim2.new(0, 40, 0, 28),
+	Position = UDim2.new(1, -50, 0, 175),
+	BackgroundColor3 = Color3.fromRGB(40, 40, 45),
+	Text = "+",
+	TextColor3 = Color3.fromRGB(255, 255, 255),
+	Font = Enum.Font.SourceSansBold
+})
+
+-- Thanh ghi chú phím tắt ở đáy Menu
+local Footnote = createUiComponent("TextLabel", {
+	Size = UDim2.new(1, 0, 0, 25),
+	Position = UDim2.new(0, 0, 1, -25),
+	BackgroundColor3 = Color3.fromRGB(24, 24, 30),
+	BorderSizePixel = 0,
+	Text = "Phím tắt: [E] Ẩn UI | [Q] Lock | [T] ESP",
+	TextColor3 = Color3.fromRGB(150, 150, 150),
+	Font = Enum.Font.SourceSansItalic,
+	TextSize = 11
+})
+
+----------------------------------------------------------------
+-- 3. HÀM ĐỒNG BỘ TRẠNG THÁI GIAO DIỆN
+----------------------------------------------------------------
+local function refreshInterface()
+	BtnLock.Text = lockOnActive and "LOCK-ON CAMERA: ACTIVE" or "LOCK-ON CAMERA: OFF [Q]"
+	BtnLock.BackgroundColor3 = lockOnActive and Color3.fromRGB(12, 68, 38) or Color3.fromRGB(35, 20, 20)
+	BtnLock.TextColor3 = lockOnActive and Color3.fromRGB(0, 255, 120) or Color3.fromRGB(255, 80, 80)
+
+	BtnLabel.Text = labelsActive and "ESP NAME & HEALTH: ACTIVE" or "ESP NAME & HEALTH: OFF [T]"
+	BtnLabel.BackgroundColor3 = labelsActive and Color3.fromRGB(12, 68, 38) or Color3.fromRGB(35, 20, 20)
+	BtnLabel.TextColor3 = labelsActive and Color3.fromRGB(0, 255, 120) or Color3.fromRGB(255, 80, 80)
+	
+	BtnFovToggle.Text = fovVisible and "VÒNG TRÒN FOV: HIỆN" or "VÒNG TRÒN FOV: ẨN"
+	BtnFovToggle.BackgroundColor3 = fovVisible and Color3.fromRGB(0, 150, 150) or Color3.fromRGB(60, 60, 65)
+	BtnFovToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+	
+	FovSizeLabel.Text = "PHẠM VI FOV: " .. fovRadius .. "px"
+	
+	for _, billboard in pairs(createdTags) do
+		if billboard then billboard.Enabled = labelsActive end
+	end
+end
+
+----------------------------------------------------------------
+-- 4. LOGIC XỬ LÝ KHÓA CAMERA GÓC NHÌN (LOCK-ON)
+----------------------------------------------------------------
+local function getClosestPlayer()
+	if not lockOnActive then return nil end
+	local closestPart = nil
+	local shortestDistance = fovRadius
+	local centerScreen = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+			local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+			if humanoid and humanoid.Health > 0 then
+				local part = player.Character.Head
+				local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+				
+				if onScreen then
+					local distance = (Vector2.new(screenPos.X, screenPos.Y) - centerScreen).Magnitude
+					if distance < shortestDistance then
+						closestPart = part
+						shortestDistance = distance
+					end
+				end
+			end
+		end
+	end
+	return closestPart
+end
+
+RunService.RenderStepped:Connect(function()
+	local centerScreen = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+	FOVCircle.Position = centerScreen
+	FOVCircle.Radius = fovRadius
+	FOVCircle.Visible = fovVisible and lockOnActive
+
+	local target = getClosestPlayer()
+	if target then
+		Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Position)
+	end
+end)
+
+----------------------------------------------------------------
+-- 5. KẾT NỐI TƯƠNG TÁC CHUỘT TRÊN MENU
+----------------------------------------------------------------
+BtnFovToggle.MouseButton1Click:Connect(function()
+	fovVisible = not fovVisible
+	refreshInterface()
+end)
+
+BtnPlus.MouseButton1Click:Connect(function()
+	fovRadius = math.clamp(fovRadius + 25, 50, 500)
+	refreshInterface()
+end)
+
+BtnMinus.MouseButton1Click:Connect(function()
+	fovRadius = math.clamp(fovRadius - 25, 50, 500)
+	refreshInterface()
+end)
+
+----------------------------------------------------------------
+-- 6. HỆ THỐNG XỬ LÝ ESP THẺ TÊN VÀ ĐỒNG BỘ MÁU (HEALTH)
+----------------------------------------------------------------
+local function createESP(player)
+	if player == LocalPlayer then return end
+	
+	local function onCharacterAdded(character)
+		local head = character:WaitForChild("Head", 5)
+		local humanoid = character:WaitForChild("Humanoid", 5)
+		if not head or not humanoid then return end
+		if createdTags[player] then createdTags[player]:Destroy() end
+
+		local billboard = Instance.new("BillboardGui")
+		billboard.Name = "ZioV2_ESP"
+		billboard.Size = UDim2.new(0, 160, 0, 40)
+		billboard.StudsOffset = Vector3.new(0, 3, 0)
+		billboard.AlwaysOnTop = true
+		billboard.Adornee = head
+		
+		local textLabel = Instance.new("TextLabel")
+		textLabel.Size = UDim2.new(1, 0, 1, 0)
+		textLabel.BackgroundTransparency = 1
+		textLabel.TextSize = 13
+		textLabel.Font = Enum.Font.SourceSansBold
+		textLabel.TextStrokeTransparency = 0.15
+		textLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+		textLabel.Parent = billboard
+		
+		local function updateHealth()
+			if humanoid and humanoid.Parent then
+				local currentHp = math.round(humanoid.Health)
+				local maxHp = math.round(humanoid.MaxHealth)
+				textLabel.Text = player.Name .. " [" .. currentHp .. "/" .. maxHp .. " HP]"
+				
+				if currentHp / maxHp > 0.5 then
+					textLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+				else
+					textLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
+				end
+			end
+		end
+
+		humanoid.HealthChanged:Connect(updateHealth)
+		updateHealth()
+		
+		billboard.Parent = head
+		createdTags[player] = billboard
+		billboard.Enabled = labelsActive
+	end
+	
+	if player.Character then onCharacterAdded(player.Character) end
+	player.CharacterAdded:Connect(onCharacterAdded)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do createESP(p) end
+Players.PlayerAdded:Connect(createESP)
+Players.PlayerRemoving:Connect(function(p) 
+	if createdTags[p] then createdTags[p]:Destroy() createdTags[p] = nil end 
+end)
+
+----------------------------------------------------------------
+-- 7. LẮNG NGHE SỰ KIỆN PHÍM BẤM PC
+----------------------------------------------------------------
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+	if gameProcessedEvent then return end
+	
+	if input.KeyCode == Enum.KeyCode.E then
+		MainMenu.Visible = not MainMenu.Visible
+	elseif input.KeyCode == Enum.KeyCode.Q then
+		lockOnActive = not lockOnActive
+		refreshInterface()
+	elseif input.KeyCode == Enum.KeyCode.T then
+		labelsActive = not labelsActive
+		refreshInterface()
+	end
+end)
+
+refreshInterface()
